@@ -227,36 +227,11 @@ echo "   ✅ Bridge 服务器已安装"
 # ─── 构建 Figma 插件 UI ──────────────────────────────
 echo "🔨 构建 Figma 插件..."
 
-# manifest.json
-cat > "$PLUGIN_DIR/manifest.json" << 'MANIFEST'
-{
-  "name": "Claude Internal in Figma",
-  "id": "claude-internal-in-figma",
-  "api": "1.0.0",
-  "main": "code.js",
-  "ui": "ui.html",
-  "editorType": ["figma", "figjam"],
-  "networkAccess": {
-    "allowedDomains": ["http://localhost:9528"],
-    "devAllowedDomains": ["http://localhost:9528"],
-    "reasoning": "Connects to local bridge for Claude Internal terminal"
-  }
-}
-MANIFEST
+# manifest.json — copy from repo
+cp "$REPO_DIR/figma-plugin/manifest.json" "$PLUGIN_DIR/manifest.json"
 
-# code.js
-cat > "$PLUGIN_DIR/code.js" << 'CODEJS'
-figma.showUI(__html__, { width: 520, height: 640, themeColors: true });
-figma.ui.onmessage = function(msg) {
-  if (!msg || typeof msg !== 'object') return;
-  if (msg.type === 'close') figma.closePlugin();
-  if (msg.type === 'ui-resize') {
-    var w = Math.max(360, Math.min(1600, Math.round(msg.width || 520)));
-    var h = Math.max(400, Math.min(2000, Math.round(msg.height || 640)));
-    figma.ui.resize(w, h);
-  }
-};
-CODEJS
+# code.js — copy from repo
+cp "$REPO_DIR/figma-plugin/code.js" "$PLUGIN_DIR/code.js"
 
 # ui.html — write template then inline xterm.js from node_modules
 # Copy the template from the original repo directory
