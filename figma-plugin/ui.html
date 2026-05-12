@@ -517,8 +517,12 @@ html, body {
   }
 
   // ─── Selection Handling ───────────────────────────
-  function updateSelection(nodes) {
-    currentSelection = nodes || [];
+  var currentFileKey = '';
+
+  function updateSelection(data) {
+    var nodes = data.nodes || [];
+    currentSelection = nodes;
+    currentFileKey = data.fileKey || '';
 
     if (currentSelection.length === 0) {
       $selBar.classList.remove('visible');
@@ -540,24 +544,41 @@ html, body {
     }
   }
 
-  function buildContextPrompt(question) {
-    var context = '以下是我在 Figma 中选中的图层信息:\n\n';
-    context += '```json\n';
-    context += JSON.stringify(currentSelection, null, 2);
-    context += '\n```\n\n';
-    context += question;
-    return context;
+  function buildMCPPrompt(question) {
+    // 构造一个 prompt 让 Claude 通过 MCP 获取设计上下文
+    var nodeId = currentSelection[0].id;
+    var prompt = '';
+
+    if (currentFileKey) {
+      prompt += '请先通过 Figma MCP 获取我选中的设计图层的完整上下文（包括截图）。\n';
+      prompt += 'Figma 文件 fileKey: ' + currentFileKey + '\n';
+      prompt += '选中的 node:\n';
+      for (var i = 0; i < currentSelection.length; i++) {
+        var n = currentSelection[i];
+        prompt += '  - nodeId: "' + n.id + '" name: "' + n.name + '" (' + n.type + ', ' + n.width + '×' + n.height + ')\n';
+      }
+      prompt += '\n请使用 get_design_context 工具获取 nodeId "' + nodeId + '" fileKey "' + currentFileKey + '" 的设计上下文，然后回答我的问题：\n\n';
+    } else {
+      prompt += '我在 Figma 中选中了以下图层：\n';
+      for (var i = 0; i < currentSelection.length; i++) {
+        var n = currentSelection[i];
+        prompt += '  - "' + n.name + '" (nodeId: ' + n.id + ', ' + n.type + ', ' + n.width + '×' + n.height + ')\n';
+      }
+      prompt += '\n（注意：无法获取 fileKey，请让我提供 Figma 文件链接以使用 MCP 获取设计上下文）\n\n';
+    }
+
+    prompt += question;
+    return prompt;
   }
 
   function sendContextQuestion() {
     var question = $ctxInput.value.trim();
     if (!question || currentSelection.length === 0) return;
 
-    var fullPrompt = buildContextPrompt(question);
+    var fullPrompt = buildMCPPrompt(question);
 
     // Send to claude-internal via terminal input
     if (proc_alive()) {
-      // Type the prompt into the terminal
       sendToTerminal(fullPrompt + '\n');
     }
 
@@ -711,7 +732,7 @@ html, body {
     if (!msg) return;
 
     if (msg.type === 'selection') {
-      updateSelection(msg.nodes);
+      updateSelection(msg);
     }
   };
 
