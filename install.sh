@@ -49,8 +49,12 @@ fi
 echo "📦 检查 claude-internal CLI..."
 if ! command -v claude-internal &>/dev/null; then
   echo "   安装 @tencent/claude-code-internal..."
-  npm install -g @tencent/claude-code-internal
-  echo "   ✅ claude-internal 已安装"
+  if npm install -g @tencent/claude-code-internal; then
+    echo "   ✅ claude-internal 已安装"
+  else
+    echo "   ⚠️  claude-internal 自动安装失败，可能是未配置公司内部 npm registry"
+    echo "      将继续安装插件文件；请稍后手动安装 claude-internal 后再启动 bridge"
+  fi
 else
   echo "   ✅ claude-internal 已存在"
 fi
