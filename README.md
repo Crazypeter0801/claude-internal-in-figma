@@ -25,6 +25,11 @@ bash install.sh
 
 首次使用会弹出浏览器进行 OA 登录。
 
+> 注意：自动生成选中画板的 Figma 链接依赖 Figma 的 private plugin API。这个插件的
+> `manifest.json` 已开启 `enablePrivatePluginApi`，请以 Development/private plugin
+> 方式导入使用；如果更新后仍拿不到链接，先重新运行 `bash install.sh`，再在 Figma
+> 里移除旧的 development plugin 并重新从 manifest 导入。
+
 ## 管理命令
 
 ```bash
