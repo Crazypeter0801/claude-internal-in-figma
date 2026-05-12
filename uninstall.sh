@@ -1,7 +1,7 @@
 #!/bin/bash
 # 卸载 Claude Internal in Figma
 
-INSTALL_DIR="$HOME/.claude-figma-bridge"
+INSTALL_DIR="$HOME/Documents/Claude-Figma-Plugin"
 PLIST_PATH="$HOME/Library/LaunchAgents/com.claude-figma-bridge.plist"
 
 echo "卸载 Claude Internal in Figma..."

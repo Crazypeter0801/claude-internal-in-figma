@@ -15,7 +15,7 @@ set -e
 #
 # ══════════════════════════════════════════════════════════
 
-INSTALL_DIR="$HOME/.claude-figma-bridge"
+INSTALL_DIR="$HOME/Documents/Claude-Figma-Plugin"
 PLUGIN_DIR="$INSTALL_DIR/figma-plugin"
 PLIST_NAME="com.claude-figma-bridge.plist"
 PLIST_PATH="$HOME/Library/LaunchAgents/$PLIST_NAME"
@@ -257,7 +257,13 @@ figma.ui.onmessage = function(msg) {
 };
 CODEJS
 
-# ui.html — build from template with inlined xterm.js
+# ui.html — write template then inline xterm.js from node_modules
+# First copy the template from the repo (if running from cloned repo)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$SCRIPT_DIR/ui-template.html" ]; then
+  cp "$SCRIPT_DIR/ui-template.html" "$INSTALL_DIR/ui-template.html"
+fi
+
 node -e "
 const fs = require('fs');
 const p = require('path');
