@@ -338,16 +338,14 @@ html, body {
     var node = currentSelection[0];
 
     if (node.figmaUrl) {
-      // 有完整 Figma 链接，直接让 Claude 用 MCP 读取
-      prompt += '请通过 Figma MCP 获取以下设计的完整上下文（截图+代码参考），然后回答我的问题。\n\n';
+      prompt += '请通过 Figma MCP 打开下面的 Figma 链接获取设计上下文，然后回答我的问题。\n\n';
       if (currentSelection.length === 1) {
         prompt += 'Figma 链接: ' + node.figmaUrl + '\n';
-        prompt += '图层: "' + node.name + '" (' + node.type + ', ' + node.width + '×' + node.height + ')\n';
       } else {
-        prompt += '选中的图层:\n';
+        prompt += 'Figma 链接:\n';
         for (var i = 0; i < currentSelection.length; i++) {
           var n = currentSelection[i];
-          prompt += '  - ' + (n.figmaUrl || '') + ' "' + n.name + '" (' + n.type + ', ' + n.width + '×' + n.height + ')\n';
+          if (n.figmaUrl) prompt += '- ' + n.figmaUrl + '\n';
         }
       }
       prompt += '\n我的问题: ' + question;

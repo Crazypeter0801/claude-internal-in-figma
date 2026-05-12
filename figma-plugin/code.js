@@ -23,11 +23,11 @@ function sendSelection() {
   }
 
   var data = nodes.map(function(node) {
-    // 构造 Figma URL 格式的 node-id（用 - 替换 :）
-    var nodeIdForUrl = node.id.replace(':', '-');
+    // 构造 Figma URL 格式的 node-id（用 - 替换所有 :）
+    var nodeIdForUrl = encodeURIComponent(node.id.replace(/:/g, '-'));
     var figmaUrl = '';
     if (fileKey) {
-      figmaUrl = 'https://figma.com/design/' + fileKey + '/?node-id=' + nodeIdForUrl;
+      figmaUrl = 'https://www.figma.com/design/' + fileKey + '/?node-id=' + nodeIdForUrl;
     }
 
     return {

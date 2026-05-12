@@ -14,9 +14,10 @@ const os = require('os');
 const path = require('path');
 
 // ─── 配置 ────────────────────────────────────────────
-const PORT = 9528;
-const CLI_COMMAND = 'claude-internal';
+const PORT = Number.parseInt(process.env.BRIDGE_PORT || '9528', 10) || 9528;
+const CLI_COMMAND = process.env.BRIDGE_CLI || 'claude-internal';
 const AUTH_TOKEN = crypto.randomBytes(16).toString('hex');
+const MAX_BODY_BYTES = 1024 * 1024;
 
 // ─── 输出缓冲 ───────────────────────────────────────
 let chunks = [];
@@ -71,30 +72,86 @@ function spawnCLI() {
 
 // ─── HTTP ────────────────────────────────────────────
 function body(req) {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     let d = '';
-    req.on('data', (c) => d += c);
-    req.on('end', () => { try { resolve(JSON.parse(d)); } catch { resolve({}); } });
+    let size = 0;
+    let tooLarge = false;
+    req.on('data', (c) => {
+      if (tooLarge) return;
+      size += c.length;
+      if (size > MAX_BODY_BYTES) {
+        tooLarge = true;
+        reject(new Error('request body too large'));
+        return;
+      }
+      d += c;
+    });
+    req.on('end', () => {
+      if (tooLarge) return;
+      try { resolve(JSON.parse(d)); } catch { resolve({}); }
+    });
+    req.on('error', reject);
   });
 }
 
-function json(res, obj, code = 200) {
-  res.writeHead(code, {
+function isAllowedOrigin(origin) {
+  if (!origin) return true;
+  if (origin === 'null') return true;
+  try {
+    const { protocol, hostname } = new URL(origin);
+    if (protocol === 'https:' && (hostname === 'figma.com' || hostname.endsWith('.figma.com'))) {
+      return true;
+    }
+    if (protocol === 'http:' && (hostname === 'localhost' || hostname === '127.0.0.1')) {
+      return true;
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+
+function corsHeaders(req) {
+  const origin = req.headers.origin;
+  const headers = {
     'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': '*',
+    'Access-Control-Allow-Headers': 'Content-Type, X-Client-Id, X-Auth-Token',
     'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-  });
+    'Vary': 'Origin',
+  };
+  if (origin && isAllowedOrigin(origin)) {
+    headers['Access-Control-Allow-Origin'] = origin;
+  }
+  return headers;
+}
+
+function json(req, res, obj, code = 200) {
+  res.writeHead(code, corsHeaders(req));
   res.end(JSON.stringify(obj));
 }
 
+function isAuthorized(req) {
+  const token = req.headers['x-auth-token'];
+  if (typeof token !== 'string') return false;
+  const expected = Buffer.from(AUTH_TOKEN);
+  const actual = Buffer.from(token);
+  return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
+}
+
+function requireAuth(req, res) {
+  if (isAuthorized(req)) return true;
+  json(req, res, { error: 'unauthorized' }, 401);
+  return false;
+}
+
 const server = http.createServer(async (req, res) => {
+  if (!isAllowedOrigin(req.headers.origin)) {
+    res.writeHead(403, { 'Content-Type': 'application/json', 'Vary': 'Origin' });
+    return res.end(JSON.stringify({ error: 'origin not allowed' }));
+  }
+
   if (req.method === 'OPTIONS') {
-    res.writeHead(204, {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Headers': '*',
-      'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-    });
+    res.writeHead(204, corsHeaders(req));
     return res.end();
   }
 
@@ -107,39 +164,53 @@ const server = http.createServer(async (req, res) => {
       totalOffset = 0;
       spawnCLI();
     }
-    return json(res, { status: 'ok', token: AUTH_TOKEN, message: alive ? 'running' : 'starting' });
+    return json(req, res, { status: 'ok', token: AUTH_TOKEN, message: alive ? 'running' : 'starting' });
   }
 
   if (p === '/output') {
+    if (!requireAuth(req, res)) return;
     const since = parseInt(url.searchParams.get('since') || '0', 10);
     const out = [];
     for (const c of chunks) { if (c.offset >= since) out.push(c.data); }
-    return json(res, { chunks: out, nextOffset: totalOffset });
+    return json(req, res, { chunks: out, nextOffset: totalOffset });
   }
 
   if (p === '/input') {
-    const b = await body(req);
+    if (!requireAuth(req, res)) return;
+    let b;
+    try {
+      b = await body(req);
+    } catch (err) {
+      return json(req, res, { error: err.message }, 413);
+    }
     if (b.data && proc && alive && proc.stdin.writable) {
       proc.stdin.write(b.data);
     }
-    return json(res, { ok: true });
+    return json(req, res, { ok: true });
   }
 
   if (p === '/resize') {
-    const b = await body(req);
+    if (!requireAuth(req, res)) return;
+    let b;
+    try {
+      b = await body(req);
+    } catch (err) {
+      return json(req, res, { error: err.message }, 413);
+    }
     cols = b.cols || 80;
     rows = b.rows || 24;
     if (proc && alive && proc.stdin.writable) {
       proc.stdin.write(`\x1b]resize;${rows};${cols}\x07`);
     }
-    return json(res, { ok: true });
+    return json(req, res, { ok: true });
   }
 
   if (p === '/disconnect') {
-    return json(res, { ok: true });
+    if (!requireAuth(req, res)) return;
+    return json(req, res, { ok: true });
   }
 
-  json(res, { error: 'not found' }, 404);
+  json(req, res, { error: 'not found' }, 404);
 });
 
 server.listen(PORT, '127.0.0.1', () => {
