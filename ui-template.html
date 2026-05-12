@@ -371,12 +371,12 @@ html, body {
 
     var fullPrompt = buildMCPPrompt(question);
 
-    // Send to claude-internal via terminal input
     if (proc_alive()) {
-      sendToTerminal(fullPrompt + '\n');
+      sendPromptToTerminal(fullPrompt);
     }
 
     $ctxInput.value = '';
+    if (term) term.focus();
   }
 
   function proc_alive() {
@@ -389,6 +389,11 @@ html, body {
       headers: headers({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ data: text }),
     }).catch(function() {});
+  }
+
+  function sendPromptToTerminal(prompt) {
+    var pastedPrompt = prompt.replace(/\r\n/g, '\n').replace(/\n/g, '\r');
+    sendToTerminal('\x1b[200~' + pastedPrompt + '\x1b[201~' + '\r');
   }
 
   // ─── Terminal Init ────────────────────────────────
