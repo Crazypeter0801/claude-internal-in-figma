@@ -334,29 +334,36 @@ html, body {
   }
 
   function buildMCPPrompt(question) {
-    // 构造一个 prompt 让 Claude 通过 MCP 获取设计上下文
-    var nodeId = currentSelection[0].id;
     var prompt = '';
+    var node = currentSelection[0];
 
-    if (currentFileKey) {
-      prompt += '请先通过 Figma MCP 获取我选中的设计图层的完整上下文（包括截图）。\n';
-      prompt += 'Figma 文件 fileKey: ' + currentFileKey + '\n';
-      prompt += '选中的 node:\n';
-      for (var i = 0; i < currentSelection.length; i++) {
-        var n = currentSelection[i];
-        prompt += '  - nodeId: "' + n.id + '" name: "' + n.name + '" (' + n.type + ', ' + n.width + '×' + n.height + ')\n';
+    if (node.figmaUrl) {
+      // 有完整 Figma 链接，直接让 Claude 用 MCP 读取
+      prompt += '请通过 Figma MCP 获取以下设计的完整上下文（截图+代码参考），然后回答我的问题。\n\n';
+      if (currentSelection.length === 1) {
+        prompt += 'Figma 链接: ' + node.figmaUrl + '\n';
+        prompt += '图层: "' + node.name + '" (' + node.type + ', ' + node.width + '×' + node.height + ')\n';
+      } else {
+        prompt += '选中的图层:\n';
+        for (var i = 0; i < currentSelection.length; i++) {
+          var n = currentSelection[i];
+          prompt += '  - ' + (n.figmaUrl || '') + ' "' + n.name + '" (' + n.type + ', ' + n.width + '×' + n.height + ')\n';
+        }
       }
-      prompt += '\n请使用 get_design_context 工具获取 nodeId "' + nodeId + '" fileKey "' + currentFileKey + '" 的设计上下文，然后回答我的问题：\n\n';
+      prompt += '\n我的问题: ' + question;
+    } else if (currentFileKey) {
+      // 有 fileKey 但没构建出 URL（不太可能）
+      prompt += '请通过 Figma MCP 的 get_design_context 工具获取设计上下文。\n';
+      prompt += 'fileKey: ' + currentFileKey + '\n';
+      prompt += 'nodeId: "' + node.id + '"\n\n';
+      prompt += '我的问题: ' + question;
     } else {
-      prompt += '我在 Figma 中选中了以下图层：\n';
-      for (var i = 0; i < currentSelection.length; i++) {
-        var n = currentSelection[i];
-        prompt += '  - "' + n.name + '" (nodeId: ' + n.id + ', ' + n.type + ', ' + n.width + '×' + n.height + ')\n';
-      }
-      prompt += '\n（注意：无法获取 fileKey，请让我提供 Figma 文件链接以使用 MCP 获取设计上下文）\n\n';
+      // 没有 fileKey，让用户提供链接
+      prompt += '我在 Figma 中选中了图层 "' + node.name + '" (' + node.type + ', ' + node.width + '×' + node.height + ')\n';
+      prompt += '但无法自动获取文件链接。请从 Figma 地址栏复制当前文件的链接给我，我就能通过 MCP 获取完整设计上下文。\n\n';
+      prompt += '我的问题: ' + question;
     }
 
-    prompt += question;
     return prompt;
   }
 

@@ -1,17 +1,11 @@
 // Claude Internal in Figma - Plugin Sandbox
 figma.showUI(__html__, { width: 520, height: 640, themeColors: true });
 
-// ─── 获取当前文件 Key ────────────────────────────────
-// Figma Plugin API 无法直接获取 fileKey，但可以通过 figma.fileKey 获取（需要较新 API）
-// 如果不可用，用户需要从 URL 中提取
-
+// ─── 获取文件信息 ────────────────────────────────────
 var fileKey = '';
 try {
-  // figma.fileKey 在较新版本的 Plugin API 中可用
   fileKey = figma.fileKey || '';
-} catch (e) {
-  fileKey = '';
-}
+} catch (e) {}
 
 // ─── 监听选择变化 ────────────────────────────────────
 figma.on('selectionchange', function() {
@@ -29,12 +23,20 @@ function sendSelection() {
   }
 
   var data = nodes.map(function(node) {
+    // 构造 Figma URL 格式的 node-id（用 - 替换 :）
+    var nodeIdForUrl = node.id.replace(':', '-');
+    var figmaUrl = '';
+    if (fileKey) {
+      figmaUrl = 'https://figma.com/design/' + fileKey + '/?node-id=' + nodeIdForUrl;
+    }
+
     return {
       id: node.id,
       name: node.name,
       type: node.type,
       width: Math.round(node.width),
       height: Math.round(node.height),
+      figmaUrl: figmaUrl,
     };
   });
 
