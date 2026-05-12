@@ -15,6 +15,7 @@ set -e
 #
 # ══════════════════════════════════════════════════════════
 
+REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 INSTALL_DIR="$HOME/Documents/Claude-Figma-Plugin"
 PLUGIN_DIR="$INSTALL_DIR/figma-plugin"
 PLIST_NAME="com.claude-figma-bridge.plist"
@@ -258,10 +259,12 @@ figma.ui.onmessage = function(msg) {
 CODEJS
 
 # ui.html — write template then inline xterm.js from node_modules
-# First copy the template from the repo (if running from cloned repo)
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [ -f "$SCRIPT_DIR/ui-template.html" ]; then
-  cp "$SCRIPT_DIR/ui-template.html" "$INSTALL_DIR/ui-template.html"
+# Copy the template from the original repo directory
+if [ -f "$REPO_DIR/ui-template.html" ]; then
+  cp "$REPO_DIR/ui-template.html" "$INSTALL_DIR/ui-template.html"
+else
+  echo "   ❌ 找不到 ui-template.html，请在仓库目录下运行此脚本"
+  exit 1
 fi
 
 node -e "
