@@ -20,6 +20,10 @@
   --dot-ok: #4ec9b0;
   --dot-err: #f14c4c;
   --dot-wait: #cca700;
+  --selection-bg: #2a2a2a;
+  --selection-border: #444;
+  --input-bg: #2a2a2a;
+  --input-border: #444;
 }
 
 @media (prefers-color-scheme: light) {
@@ -30,6 +34,10 @@
     --bar-border: #e0e0e0;
     --btn-bg: #e4e4e4;
     --btn-hover: #d0d0d0;
+    --selection-bg: #f8f8f8;
+    --selection-border: #e0e0e0;
+    --input-bg: #f5f5f5;
+    --input-border: #ddd;
   }
 }
 
@@ -106,6 +114,28 @@ html, body {
 }
 .btn:hover { background: var(--btn-hover); }
 
+/* ─── Selection Bar ─── */
+#selection-bar {
+  display: none;
+  padding: 6px 10px;
+  background: var(--selection-bg);
+  border-bottom: 1px solid var(--selection-border);
+  font-size: 11px;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+#selection-bar.visible { display: flex; align-items: center; gap: 6px; }
+#selection-bar .sel-icon { opacity: 0.5; font-size: 12px; }
+#selection-bar .sel-text { opacity: 0.8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
+#selection-bar .sel-badge {
+  background: var(--accent);
+  color: #fff;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
 /* ─── Terminal Area ─── */
 #term-wrap {
   flex: 1;
@@ -117,6 +147,45 @@ html, body {
   height: 100%;
   padding: 4px;
 }
+
+/* ─── Context Input ─── */
+#context-input-wrap {
+  display: none;
+  padding: 8px 10px;
+  background: var(--bar-bg);
+  border-top: 1px solid var(--bar-border);
+  flex-shrink: 0;
+  gap: 6px;
+  align-items: center;
+}
+#context-input-wrap.visible { display: flex; }
+
+#context-input {
+  flex: 1;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: 4px;
+  padding: 6px 10px;
+  color: var(--fg);
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+  resize: none;
+}
+#context-input:focus { border-color: var(--accent); }
+#context-input::placeholder { opacity: 0.4; }
+
+#btn-send {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+#btn-send:hover { opacity: 0.9; }
 
 /* ─── Offline Screen ─── */
 #offline {
@@ -159,8 +228,17 @@ html, body {
       <button class="btn" id="btn-reconnect">Reconnect</button>
     </div>
   </div>
+  <div id="selection-bar">
+    <span class="sel-icon">◆</span>
+    <span class="sel-text" id="sel-text">No selection</span>
+    <span class="sel-badge" id="sel-badge"></span>
+  </div>
   <div id="term-wrap">
     <div id="terminal"></div>
+  </div>
+  <div id="context-input-wrap">
+    <input type="text" id="context-input" placeholder="Ask about selected layers..." />
+    <button id="btn-send">Send</button>
   </div>
   <div id="offline">
     <h2>Bridge Server Offline</h2>
@@ -194,11 +272,20 @@ html, body {
   var errors = 0;
   var fontSize = 13;
 
+  // Selection state
+  var currentSelection = [];
+
   // ─── DOM ──────────────────────────────────────────
   var $dot = document.getElementById('dot');
   var $msg = document.getElementById('msg');
   var $offline = document.getElementById('offline');
   var $termEl = document.getElementById('terminal');
+  var $selBar = document.getElementById('selection-bar');
+  var $selText = document.getElementById('sel-text');
+  var $selBadge = document.getElementById('sel-badge');
+  var $ctxWrap = document.getElementById('context-input-wrap');
+  var $ctxInput = document.getElementById('context-input');
+  var $btnSend = document.getElementById('btn-send');
 
   // ─── Helpers ──────────────────────────────────────
   function headers(extra) {
@@ -216,6 +303,66 @@ html, body {
     } else {
       $offline.classList.remove('show');
     }
+  }
+
+  // ─── Selection Handling ───────────────────────────
+  function updateSelection(nodes) {
+    currentSelection = nodes || [];
+
+    if (currentSelection.length === 0) {
+      $selBar.classList.remove('visible');
+      $ctxWrap.classList.remove('visible');
+    } else {
+      $selBar.classList.add('visible');
+      $ctxWrap.classList.add('visible');
+
+      if (currentSelection.length === 1) {
+        var n = currentSelection[0];
+        $selText.textContent = n.name + ' (' + n.type + ', ' + n.width + '×' + n.height + ')';
+        $selBadge.textContent = '1 layer';
+      } else {
+        var names = currentSelection.slice(0, 3).map(function(n) { return n.name; }).join(', ');
+        if (currentSelection.length > 3) names += '...';
+        $selText.textContent = names;
+        $selBadge.textContent = currentSelection.length + ' layers';
+      }
+    }
+  }
+
+  function buildContextPrompt(question) {
+    var context = '以下是我在 Figma 中选中的图层信息:\n\n';
+    context += '```json\n';
+    context += JSON.stringify(currentSelection, null, 2);
+    context += '\n```\n\n';
+    context += question;
+    return context;
+  }
+
+  function sendContextQuestion() {
+    var question = $ctxInput.value.trim();
+    if (!question || currentSelection.length === 0) return;
+
+    var fullPrompt = buildContextPrompt(question);
+
+    // Send to claude-internal via terminal input
+    if (proc_alive()) {
+      // Type the prompt into the terminal
+      sendToTerminal(fullPrompt + '\n');
+    }
+
+    $ctxInput.value = '';
+  }
+
+  function proc_alive() {
+    return polling && term;
+  }
+
+  function sendToTerminal(text) {
+    fetch(HOST + '/input', {
+      method: 'POST',
+      headers: headers({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ data: text }),
+    }).catch(function() {});
   }
 
   // ─── Terminal Init ────────────────────────────────
@@ -336,6 +483,25 @@ html, body {
   document.getElementById('btn-bigger').onclick = function() {
     fontSize = Math.min(20, fontSize + 1);
     if (term) { term.options.fontSize = fontSize; fitAddon.fit(); }
+  };
+
+  // Send context question
+  $btnSend.onclick = sendContextQuestion;
+  $ctxInput.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendContextQuestion();
+    }
+  });
+
+  // ─── Figma Plugin Messages ────────────────────────
+  window.onmessage = function(event) {
+    var msg = event.data && event.data.pluginMessage;
+    if (!msg) return;
+
+    if (msg.type === 'selection') {
+      updateSelection(msg.nodes);
+    }
   };
 
   // ─── Cleanup ──────────────────────────────────────
