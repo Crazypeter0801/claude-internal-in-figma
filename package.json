@@ -1,0 +1,14 @@
+{
+  "name": "claude-figma-bridge",
+  "version": "1.0.0",
+  "description": "在 Figma 中使用 Claude Code Internal",
+  "main": "bridge.js",
+  "scripts": {
+    "start": "node bridge.js",
+    "build": "node build.js"
+  },
+  "dependencies": {
+    "xterm": "^5.3.0",
+    "@xterm/addon-fit": "^0.10.0"
+  }
+}

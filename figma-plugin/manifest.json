@@ -1,0 +1,13 @@
+{
+  "name": "Claude Internal in Figma",
+  "id": "claude-internal-in-figma-dev",
+  "api": "1.0.0",
+  "main": "code.js",
+  "ui": "ui.html",
+  "editorType": ["figma", "figjam"],
+  "networkAccess": {
+    "allowedDomains": ["http://localhost:9528"],
+    "devAllowedDomains": ["http://localhost:9528"],
+    "reasoning": "Connects to local bridge for claude-internal terminal relay"
+  }
+}

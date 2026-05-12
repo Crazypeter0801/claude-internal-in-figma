@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Claude Internal</title>
+<style>
+/* __XTERM_CSS__ */
+</style>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --bg: #1a1a1a;
+  --fg: #e0e0e0;
+  --bar-bg: #252525;
+  --bar-border: #333;
+  --accent: #cc785c;
+  --btn-bg: #333;
+  --btn-hover: #444;
+  --dot-ok: #4ec9b0;
+  --dot-err: #f14c4c;
+  --dot-wait: #cca700;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #ffffff;
+    --fg: #1e1e1e;
+    --bar-bg: #f5f5f5;
+    --bar-border: #e0e0e0;
+    --btn-bg: #e4e4e4;
+    --btn-hover: #d0d0d0;
+  }
+}
+
+html, body {
+  width: 100%; height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
+  font-size: 12px;
+  overflow: hidden;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* ─── Status Bar ─── */
+#bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 10px;
+  background: var(--bar-bg);
+  border-bottom: 1px solid var(--bar-border);
+  min-height: 30px;
+  flex-shrink: 0;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+#bar-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+#dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--dot-wait);
+  transition: background 0.3s;
+}
+#dot.ok { background: var(--dot-ok); }
+#dot.err { background: var(--dot-err); }
+#dot.wait { background: var(--dot-wait); animation: blink 1.2s infinite; }
+
+@keyframes blink {
+  0%,100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+#msg {
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+#bar-right {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.btn {
+  background: var(--btn-bg);
+  border: none;
+  color: var(--fg);
+  padding: 2px 7px;
+  border-radius: 3px;
+  font-size: 11px;
+  cursor: pointer;
+  line-height: 1.4;
+}
+.btn:hover { background: var(--btn-hover); }
+
+/* ─── Terminal Area ─── */
+#term-wrap {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+#term-wrap .xterm {
+  height: 100%;
+  padding: 4px;
+}
+
+/* ─── Offline Screen ─── */
+#offline {
+  display: none;
+  position: absolute;
+  inset: 0;
+  background: var(--bg);
+  z-index: 50;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 12px;
+  padding: 24px;
+}
+#offline.show { display: flex; }
+#offline h2 { font-size: 14px; font-weight: 600; }
+#offline p { font-size: 12px; opacity: 0.6; line-height: 1.5; max-width: 260px; }
+#offline code {
+  display: block;
+  background: var(--btn-bg);
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-family: Menlo, monospace;
+  font-size: 11px;
+  margin-top: 4px;
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="bar">
+    <div id="bar-left">
+      <div id="dot" class="wait"></div>
+      <span id="msg">Connecting...</span>
+    </div>
+    <div id="bar-right">
+      <button class="btn" id="btn-smaller">A−</button>
+      <button class="btn" id="btn-bigger">A+</button>
+      <button class="btn" id="btn-reconnect">Reconnect</button>
+    </div>
+  </div>
+  <div id="term-wrap">
+    <div id="terminal"></div>
+  </div>
+  <div id="offline">
+    <h2>Bridge Server Offline</h2>
+    <p>Start the bridge first, then click Reconnect:</p>
+    <code>npm start</code>
+  </div>
+</div>
+
+<script>
+/* __XTERM_JS__ */
+</script>
+<script>
+/* __FIT_ADDON_JS__ */
+</script>
+<script>
+(function() {
+  'use strict';
+
+  // ─── Config ───────────────────────────────────────
+  var HOST = 'http://localhost:9528';
+  var POLL_MS = 80;
+  var MAX_ERRORS = 5;
+
+  // ─── State ────────────────────────────────────────
+  var term = null;
+  var fitAddon = null;
+  var polling = false;
+  var clientId = 'figma-' + Math.random().toString(36).slice(2, 10);
+  var authToken = null;
+  var offset = 0;
+  var errors = 0;
+  var fontSize = 13;
+
+  // ─── DOM ──────────────────────────────────────────
+  var $dot = document.getElementById('dot');
+  var $msg = document.getElementById('msg');
+  var $offline = document.getElementById('offline');
+  var $termEl = document.getElementById('terminal');
+
+  // ─── Helpers ──────────────────────────────────────
+  function headers(extra) {
+    var h = Object.assign({}, extra || {});
+    h['X-Client-Id'] = clientId;
+    if (authToken) h['X-Auth-Token'] = authToken;
+    return h;
+  }
+
+  function status(state, text) {
+    $dot.className = state;
+    $msg.textContent = text;
+    if (state === 'err') {
+      $offline.classList.add('show');
+    } else {
+      $offline.classList.remove('show');
+    }
+  }
+
+  // ─── Terminal Init ────────────────────────────────
+  function initTerminal() {
+    if (term) return;
+
+    var isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    var theme = isDark
+      ? { background: '#1a1a1a', foreground: '#e0e0e0', cursor: '#e0e0e0', selectionBackground: '#cc785c55' }
+      : { background: '#ffffff', foreground: '#1e1e1e', cursor: '#1e1e1e', selectionBackground: '#cc785c33' };
+
+    term = new Terminal({
+      fontSize: fontSize,
+      fontFamily: 'Menlo, Monaco, "SF Mono", "Courier New", monospace',
+      lineHeight: 1.2,
+      cursorBlink: true,
+      cursorStyle: 'bar',
+      allowProposedApi: true,
+      scrollback: 5000,
+      theme: theme,
+    });
+
+    fitAddon = new FitAddon.FitAddon();
+    term.loadAddon(fitAddon);
+    term.open($termEl);
+    fitAddon.fit();
+
+    // User input → bridge
+    term.onData(function(data) {
+      fetch(HOST + '/input', {
+        method: 'POST',
+        headers: headers({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ data: data }),
+      }).catch(function() {});
+    });
+
+    // Auto-resize
+    var ro = new ResizeObserver(function() {
+      if (fitAddon) {
+        fitAddon.fit();
+        fetch(HOST + '/resize', {
+          method: 'POST',
+          headers: headers({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({ cols: term.cols, rows: term.rows }),
+        }).catch(function() {});
+      }
+    });
+    ro.observe($termEl);
+  }
+
+  // ─── Poll Loop ────────────────────────────────────
+  function poll() {
+    if (!polling) return;
+
+    fetch(HOST + '/output?since=' + offset, { headers: headers() })
+      .then(function(res) {
+        if (!res.ok) throw new Error(res.status);
+        return res.json();
+      })
+      .then(function(data) {
+        if (typeof data.nextOffset === 'number') offset = data.nextOffset;
+        var chunks = data.chunks || [];
+        for (var i = 0; i < chunks.length; i++) {
+          term.write(chunks[i]);
+        }
+        errors = 0;
+        status('ok', 'Connected');
+      })
+      .catch(function() {
+        errors++;
+        if (errors >= MAX_ERRORS) {
+          status('err', 'Connection lost');
+          polling = false;
+          return;
+        }
+      })
+      .finally(function() {
+        if (polling) setTimeout(poll, POLL_MS);
+      });
+  }
+
+  // ─── Connect ──────────────────────────────────────
+  function connect() {
+    if (polling) return;
+    errors = 0;
+    offset = 0;
+    status('wait', 'Connecting...');
+
+    fetch(HOST + '/health')
+      .then(function(res) { return res.json(); })
+      .then(function(data) {
+        if (data.token) authToken = data.token;
+        polling = true;
+        initTerminal();
+        term.clear();
+        term.focus();
+        // Send initial resize
+        fetch(HOST + '/resize', {
+          method: 'POST',
+          headers: headers({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({ cols: term.cols, rows: term.rows }),
+        }).catch(function() {});
+        poll();
+      })
+      .catch(function() {
+        status('err', 'Bridge offline');
+      });
+  }
+
+  // ─── Button Handlers ──────────────────────────────
+  document.getElementById('btn-reconnect').onclick = connect;
+
+  document.getElementById('btn-smaller').onclick = function() {
+    fontSize = Math.max(10, fontSize - 1);
+    if (term) { term.options.fontSize = fontSize; fitAddon.fit(); }
+  };
+
+  document.getElementById('btn-bigger').onclick = function() {
+    fontSize = Math.min(20, fontSize + 1);
+    if (term) { term.options.fontSize = fontSize; fitAddon.fit(); }
+  };
+
+  // ─── Cleanup ──────────────────────────────────────
+  window.addEventListener('beforeunload', function() {
+    polling = false;
+    fetch(HOST + '/disconnect', {
+      method: 'POST',
+      headers: headers({ 'Content-Type': 'application/json' }),
+      body: '{}',
+      keepalive: true,
+    }).catch(function() {});
+  });
+
+  // ─── Auto-connect ─────────────────────────────────
+  connect();
+
+})();
+</script>
+</body>
+</html>
