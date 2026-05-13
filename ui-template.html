@@ -27,7 +27,7 @@
 }
 
 @media (prefers-color-scheme: light) {
-  :root {
+  :root:not([data-theme]) {
     --bg: #ffffff;
     --fg: #1e1e1e;
     --bar-bg: #f5f5f5;
@@ -39,6 +39,74 @@
     --input-bg: #f5f5f5;
     --input-border: #ddd;
   }
+}
+
+:root[data-theme="catppuccin"] {
+  --bg: #1e1e2e;
+  --fg: #cdd6f4;
+  --bar-bg: #181825;
+  --bar-border: #313244;
+  --accent: #f5c2e7;
+  --btn-bg: #313244;
+  --btn-hover: #45475a;
+  --dot-ok: #a6e3a1;
+  --dot-err: #f38ba8;
+  --dot-wait: #f9e2af;
+  --selection-bg: #181825;
+  --selection-border: #313244;
+  --input-bg: #11111b;
+  --input-border: #45475a;
+}
+
+:root[data-theme="tokyo"] {
+  --bg: #1a1b26;
+  --fg: #c0caf5;
+  --bar-bg: #16161e;
+  --bar-border: #2f3549;
+  --accent: #7aa2f7;
+  --btn-bg: #292e42;
+  --btn-hover: #3b4261;
+  --dot-ok: #9ece6a;
+  --dot-err: #f7768e;
+  --dot-wait: #e0af68;
+  --selection-bg: #1f2335;
+  --selection-border: #3b4261;
+  --input-bg: #16161e;
+  --input-border: #3b4261;
+}
+
+:root[data-theme="nord"] {
+  --bg: #2e3440;
+  --fg: #d8dee9;
+  --bar-bg: #242933;
+  --bar-border: #3b4252;
+  --accent: #88c0d0;
+  --btn-bg: #3b4252;
+  --btn-hover: #434c5e;
+  --dot-ok: #a3be8c;
+  --dot-err: #bf616a;
+  --dot-wait: #ebcb8b;
+  --selection-bg: #242933;
+  --selection-border: #434c5e;
+  --input-bg: #242933;
+  --input-border: #4c566a;
+}
+
+:root[data-theme="light"] {
+  --bg: #ffffff;
+  --fg: #24292f;
+  --bar-bg: #f6f8fa;
+  --bar-border: #d0d7de;
+  --accent: #0969da;
+  --btn-bg: #eaeef2;
+  --btn-hover: #d8dee4;
+  --dot-ok: #1a7f37;
+  --dot-err: #cf222e;
+  --dot-wait: #9a6700;
+  --selection-bg: #f6f8fa;
+  --selection-border: #d0d7de;
+  --input-bg: #ffffff;
+  --input-border: #d0d7de;
 }
 
 html, body {
@@ -54,6 +122,7 @@ html, body {
   display: flex;
   flex-direction: column;
   height: 100%;
+  position: relative;
 }
 
 /* ─── Status Bar ─── */
@@ -99,12 +168,13 @@ html, body {
 #bar-right {
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 5px;
 }
 
-.btn {
+.btn,
+#theme-select {
   background: var(--btn-bg);
-  border: none;
+  border: 1px solid transparent;
   color: var(--fg);
   padding: 2px 7px;
   border-radius: 3px;
@@ -112,7 +182,17 @@ html, body {
   cursor: pointer;
   line-height: 1.4;
 }
-.btn:hover { background: var(--btn-hover); }
+.btn:hover,
+#theme-select:hover { background: var(--btn-hover); }
+
+#theme-select {
+  max-width: 112px;
+  outline: none;
+}
+
+#theme-select:focus {
+  border-color: var(--accent);
+}
 
 /* ─── Selection Bar ─── */
 #selection-bar {
@@ -213,6 +293,26 @@ html, body {
   font-size: 11px;
   margin-top: 4px;
 }
+
+#resize-handle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 18px;
+  height: 18px;
+  z-index: 80;
+  cursor: nwse-resize;
+  opacity: 0.45;
+  background:
+    linear-gradient(135deg, transparent 0 50%, var(--accent) 50% 56%, transparent 56%),
+    linear-gradient(135deg, transparent 0 66%, var(--accent) 66% 72%, transparent 72%);
+}
+#resize-handle:hover { opacity: 0.85; }
+
+body.resizing {
+  cursor: nwse-resize;
+  user-select: none;
+}
 </style>
 </head>
 <body>
@@ -223,6 +323,13 @@ html, body {
       <span id="msg">Connecting...</span>
     </div>
     <div id="bar-right">
+      <select id="theme-select" aria-label="Theme">
+        <option value="claude">Claude</option>
+        <option value="catppuccin">Catppuccin</option>
+        <option value="tokyo">Tokyo Night</option>
+        <option value="nord">Nord</option>
+        <option value="light">Light</option>
+      </select>
       <button class="btn" id="btn-smaller">A−</button>
       <button class="btn" id="btn-bigger">A+</button>
       <button class="btn" id="btn-reconnect">Reconnect</button>
@@ -240,12 +347,13 @@ html, body {
     <input type="text" id="context-input" placeholder="Ask about selected layers..." />
     <button id="btn-send">Send</button>
   </div>
-  <div id="offline">
-    <h2>Bridge Server Offline</h2>
-    <p>Start the bridge first, then click Reconnect:</p>
-    <code>npm start</code>
+    <div id="offline">
+      <h2>Bridge Server Offline</h2>
+      <p>Start the bridge first, then click Reconnect:</p>
+      <code>npm start</code>
+    </div>
+    <div id="resize-handle" title="Resize"></div>
   </div>
-</div>
 
 <script>
 /* __XTERM_JS__ */
@@ -267,13 +375,139 @@ html, body {
   var fitAddon = null;
   var polling = false;
   var clientId = 'figma-' + Math.random().toString(36).slice(2, 10);
-  var authToken = null;
-  var offset = 0;
-  var errors = 0;
-  var fontSize = 13;
+    var authToken = null;
+    var offset = 0;
+    var errors = 0;
+    var fontSize = 13;
+    var currentTheme = null;
+    var resizeFrame = null;
+    var resizeState = null;
 
-  // Selection state
-  var currentSelection = [];
+    var THEMES = {
+      claude: {
+        xterm: {
+          background: '#1a1a1a',
+          foreground: '#e0e0e0',
+          cursor: '#e0e0e0',
+          selectionBackground: '#cc785c55',
+          black: '#1a1a1a',
+          red: '#f14c4c',
+          green: '#4ec9b0',
+          yellow: '#cca700',
+          blue: '#569cd6',
+          magenta: '#c586c0',
+          cyan: '#9cdcfe',
+          white: '#d4d4d4',
+          brightBlack: '#808080',
+          brightRed: '#f44747',
+          brightGreen: '#6a9955',
+          brightYellow: '#dcdcaa',
+          brightBlue: '#9cdcfe',
+          brightMagenta: '#d7ba7d',
+          brightCyan: '#4ec9b0',
+          brightWhite: '#ffffff',
+        },
+      },
+      catppuccin: {
+        xterm: {
+          background: '#1e1e2e',
+          foreground: '#cdd6f4',
+          cursor: '#f5e0dc',
+          selectionBackground: '#585b7070',
+          black: '#45475a',
+          red: '#f38ba8',
+          green: '#a6e3a1',
+          yellow: '#f9e2af',
+          blue: '#89b4fa',
+          magenta: '#f5c2e7',
+          cyan: '#94e2d5',
+          white: '#bac2de',
+          brightBlack: '#585b70',
+          brightRed: '#f38ba8',
+          brightGreen: '#a6e3a1',
+          brightYellow: '#f9e2af',
+          brightBlue: '#89b4fa',
+          brightMagenta: '#f5c2e7',
+          brightCyan: '#94e2d5',
+          brightWhite: '#a6adc8',
+        },
+      },
+      tokyo: {
+        xterm: {
+          background: '#1a1b26',
+          foreground: '#c0caf5',
+          cursor: '#c0caf5',
+          selectionBackground: '#33467c70',
+          black: '#15161e',
+          red: '#f7768e',
+          green: '#9ece6a',
+          yellow: '#e0af68',
+          blue: '#7aa2f7',
+          magenta: '#bb9af7',
+          cyan: '#7dcfff',
+          white: '#a9b1d6',
+          brightBlack: '#414868',
+          brightRed: '#f7768e',
+          brightGreen: '#9ece6a',
+          brightYellow: '#e0af68',
+          brightBlue: '#7aa2f7',
+          brightMagenta: '#bb9af7',
+          brightCyan: '#7dcfff',
+          brightWhite: '#c0caf5',
+        },
+      },
+      nord: {
+        xterm: {
+          background: '#2e3440',
+          foreground: '#d8dee9',
+          cursor: '#d8dee9',
+          selectionBackground: '#4c566a80',
+          black: '#3b4252',
+          red: '#bf616a',
+          green: '#a3be8c',
+          yellow: '#ebcb8b',
+          blue: '#81a1c1',
+          magenta: '#b48ead',
+          cyan: '#88c0d0',
+          white: '#e5e9f0',
+          brightBlack: '#4c566a',
+          brightRed: '#bf616a',
+          brightGreen: '#a3be8c',
+          brightYellow: '#ebcb8b',
+          brightBlue: '#81a1c1',
+          brightMagenta: '#b48ead',
+          brightCyan: '#8fbcbb',
+          brightWhite: '#eceff4',
+        },
+      },
+      light: {
+        xterm: {
+          background: '#ffffff',
+          foreground: '#24292f',
+          cursor: '#24292f',
+          selectionBackground: '#0969da33',
+          black: '#24292f',
+          red: '#cf222e',
+          green: '#1a7f37',
+          yellow: '#9a6700',
+          blue: '#0969da',
+          magenta: '#8250df',
+          cyan: '#1b7c83',
+          white: '#6e7781',
+          brightBlack: '#57606a',
+          brightRed: '#a40e26',
+          brightGreen: '#116329',
+          brightYellow: '#7d4e00',
+          brightBlue: '#0550ae',
+          brightMagenta: '#6639ba',
+          brightCyan: '#05595f',
+          brightWhite: '#24292f',
+        },
+      },
+    };
+
+    // Selection state
+    var currentSelection = [];
 
   // ─── DOM ──────────────────────────────────────────
   var $dot = document.getElementById('dot');
@@ -283,9 +517,11 @@ html, body {
   var $selBar = document.getElementById('selection-bar');
   var $selText = document.getElementById('sel-text');
   var $selBadge = document.getElementById('sel-badge');
-  var $ctxWrap = document.getElementById('context-input-wrap');
-  var $ctxInput = document.getElementById('context-input');
-  var $btnSend = document.getElementById('btn-send');
+    var $ctxWrap = document.getElementById('context-input-wrap');
+    var $ctxInput = document.getElementById('context-input');
+    var $btnSend = document.getElementById('btn-send');
+    var $themeSelect = document.getElementById('theme-select');
+    var $resizeHandle = document.getElementById('resize-handle');
 
   // ─── Helpers ──────────────────────────────────────
   function headers(extra) {
@@ -295,15 +531,67 @@ html, body {
     return h;
   }
 
-  function status(state, text) {
-    $dot.className = state;
+    function status(state, text) {
+      $dot.className = state;
     $msg.textContent = text;
     if (state === 'err') {
       $offline.classList.add('show');
     } else {
       $offline.classList.remove('show');
+      }
     }
-  }
+
+    function getStoredTheme() {
+      try {
+        return localStorage.getItem('claude-figma-theme');
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function storeTheme(name) {
+      try {
+        localStorage.setItem('claude-figma-theme', name);
+      } catch (e) {}
+    }
+
+    function getStoredSize() {
+      try {
+        var raw = localStorage.getItem('claude-figma-size');
+        return raw ? JSON.parse(raw) : null;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function storeSize(width, height) {
+      try {
+        localStorage.setItem('claude-figma-size', JSON.stringify({
+          width: Math.round(width),
+          height: Math.round(height),
+        }));
+      } catch (e) {}
+    }
+
+    function defaultTheme() {
+      var stored = getStoredTheme();
+      if (stored && THEMES[stored]) return stored;
+      return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'claude';
+    }
+
+    function applyTheme(name, persist) {
+      if (!THEMES[name]) name = 'claude';
+      currentTheme = name;
+      document.documentElement.setAttribute('data-theme', name);
+      if ($themeSelect) $themeSelect.value = name;
+      if (persist) storeTheme(name);
+      if (term) {
+        term.options.theme = THEMES[name].xterm;
+        term.refresh(0, term.rows - 1);
+      }
+    }
+
+    applyTheme(defaultTheme(), false);
 
   // ─── Selection Handling ───────────────────────────
   var currentFileKey = '';
@@ -391,33 +679,83 @@ html, body {
     }).catch(function() {});
   }
 
-  function sendPromptToTerminal(prompt) {
-    var pastedPrompt = prompt.replace(/\r\n/g, '\n').replace(/\n/g, '\r');
-    sendToTerminal('\x1b[200~' + pastedPrompt + '\x1b[201~');
-    setTimeout(function() {
-      sendToTerminal('\r');
-    }, 120);
-  }
+    function sendPromptToTerminal(prompt) {
+      var pastedPrompt = prompt.replace(/\r\n/g, '\n').replace(/\n/g, '\r');
+      sendToTerminal('\x1b[200~' + pastedPrompt + '\x1b[201~');
+      setTimeout(function() {
+        sendToTerminal('\r');
+      }, 120);
+    }
+
+    function requestPluginResize(width, height) {
+      parent.postMessage({
+        pluginMessage: {
+          type: 'ui-resize',
+          width: width,
+          height: height,
+        },
+      }, '*');
+    }
+
+    function queueResize(width, height) {
+      if (resizeFrame) cancelAnimationFrame(resizeFrame);
+      resizeFrame = requestAnimationFrame(function() {
+        resizeFrame = null;
+        requestPluginResize(width, height);
+      });
+    }
+
+    function startWindowResize(e) {
+      e.preventDefault();
+      resizeState = {
+        startX: e.clientX,
+        startY: e.clientY,
+        startWidth: window.innerWidth,
+        startHeight: window.innerHeight,
+        width: window.innerWidth,
+        height: window.innerHeight,
+      };
+      document.body.classList.add('resizing');
+      window.addEventListener('mousemove', onWindowResizeMove);
+      window.addEventListener('mouseup', stopWindowResize);
+    }
+
+    function onWindowResizeMove(e) {
+      if (!resizeState) return;
+      resizeState.width = resizeState.startWidth + e.clientX - resizeState.startX;
+      resizeState.height = resizeState.startHeight + e.clientY - resizeState.startY;
+      queueResize(resizeState.width, resizeState.height);
+    }
+
+    function stopWindowResize() {
+      if (resizeState) storeSize(resizeState.width, resizeState.height);
+      resizeState = null;
+      document.body.classList.remove('resizing');
+      window.removeEventListener('mousemove', onWindowResizeMove);
+      window.removeEventListener('mouseup', stopWindowResize);
+    }
+
+    function restoreWindowSize() {
+      var size = getStoredSize();
+      if (size && size.width && size.height) {
+        requestPluginResize(size.width, size.height);
+      }
+    }
 
   // ─── Terminal Init ────────────────────────────────
   function initTerminal() {
     if (term) return;
 
-    var isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-    var theme = isDark
-      ? { background: '#1a1a1a', foreground: '#e0e0e0', cursor: '#e0e0e0', selectionBackground: '#cc785c55' }
-      : { background: '#ffffff', foreground: '#1e1e1e', cursor: '#1e1e1e', selectionBackground: '#cc785c33' };
-
-    term = new Terminal({
-      fontSize: fontSize,
-      fontFamily: 'Menlo, Monaco, "SF Mono", "Courier New", monospace',
+      term = new Terminal({
+        fontSize: fontSize,
+        fontFamily: 'Menlo, Monaco, "SF Mono", "Courier New", monospace',
       lineHeight: 1.2,
       cursorBlink: true,
-      cursorStyle: 'bar',
-      allowProposedApi: true,
-      scrollback: 5000,
-      theme: theme,
-    });
+        cursorStyle: 'bar',
+        allowProposedApi: true,
+        scrollback: 5000,
+        theme: THEMES[currentTheme].xterm,
+      });
 
     fitAddon = new FitAddon.FitAddon();
     term.loadAddon(fitAddon);
@@ -506,8 +844,14 @@ html, body {
       });
   }
 
-  // ─── Button Handlers ──────────────────────────────
-  document.getElementById('btn-reconnect').onclick = connect;
+    // ─── Button Handlers ──────────────────────────────
+    document.getElementById('btn-reconnect').onclick = connect;
+    $themeSelect.onchange = function() {
+      applyTheme($themeSelect.value, true);
+    };
+    $resizeHandle.addEventListener('mousedown', startWindowResize);
+    window.addEventListener('blur', stopWindowResize);
+    restoreWindowSize();
 
   document.getElementById('btn-smaller').onclick = function() {
     fontSize = Math.max(10, fontSize - 1);
