@@ -604,7 +604,10 @@ html, body {
 
   function sendPromptToTerminal(prompt) {
     var pastedPrompt = prompt.replace(/\r\n/g, '\n').replace(/\n/g, '\r');
-    sendToTerminal('\x1b[200~' + pastedPrompt + '\x1b[201~' + '\r');
+    sendToTerminal('\x1b[200~' + pastedPrompt + '\x1b[201~');
+    setTimeout(function() {
+      sendToTerminal('\r');
+    }, 120);
   }
 
   // ─── Terminal Init ────────────────────────────────
